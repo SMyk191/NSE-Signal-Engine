@@ -4,7 +4,7 @@ import { ChevronDown, Search, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import useAppStore from '../stores/appStore';
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 const NIFTY_50 = [
   { symbol: 'ADANIENT', name: 'Adani Enterprises' },

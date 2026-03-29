@@ -9,6 +9,7 @@ Run with: uvicorn main:app --reload --port 8000
 import logging
 import sys
 from contextlib import asynccontextmanager
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -102,11 +103,17 @@ app = FastAPI(
 )
 
 # ---------------------------------------------------------------------------
-# CORS middleware (allow all origins for development)
+# CORS middleware
 # ---------------------------------------------------------------------------
+origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    os.environ.get("FRONTEND_URL", "http://localhost:5173"),
+]
+# Also keep allow_all for now since we don't know the Vercel URL yet
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Will restrict after deployment
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

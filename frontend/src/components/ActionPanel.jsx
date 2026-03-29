@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { AlertTriangle, ChevronDown, TrendingUp, TrendingDown, Minus, ShieldCheck, BarChart3, Layers } from 'lucide-react';
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 function pct(current, target) {
