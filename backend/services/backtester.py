@@ -382,7 +382,10 @@ class Backtester:
 
         # --- Monthly returns ---
         if hasattr(equity_curve.index, "to_period"):
-            monthly_equity = equity_curve.resample("M").last()
+            try:
+                monthly_equity = equity_curve.resample("ME").last()
+            except ValueError:
+                monthly_equity = equity_curve.resample("M").last()
             monthly_returns = monthly_equity.pct_change().dropna()
         else:
             monthly_returns = pd.Series(dtype=float)

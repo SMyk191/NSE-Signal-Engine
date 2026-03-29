@@ -179,7 +179,7 @@ function Admin() {
   const fetchUsers = useCallback(async () => {
     try {
       const res = await api.get('/admin/users');
-      setUsers(res.data);
+      setUsers(res.data?.users || res.data || []);
     } catch {
       // silent
     } finally {
@@ -190,7 +190,7 @@ function Admin() {
   const fetchActivity = useCallback(async () => {
     try {
       const res = await api.get('/admin/activity', { params: { limit: 50 } });
-      setActivity(res.data);
+      setActivity(res.data?.activity || res.data || []);
     } catch {
       // silent
     } finally {
@@ -201,7 +201,13 @@ function Admin() {
   const fetchSettings = useCallback(async () => {
     try {
       const res = await api.get('/admin/settings');
-      setSettings(res.data);
+      const raw = res.data?.settings || res.data || {};
+      // Flatten {key: {value, updated_at}} to {key: value}
+      const flat = {};
+      for (const [k, v] of Object.entries(raw)) {
+        flat[k] = typeof v === 'object' && v !== null ? v.value : v;
+      }
+      setSettings(flat);
     } catch {
       // silent
     } finally {
