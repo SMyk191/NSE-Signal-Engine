@@ -56,18 +56,25 @@ class UpstoxService:
         dict
             The full token response from Upstox.
         """
+        payload = {
+            "code": code,
+            "client_id": UPSTOX_API_KEY,
+            "client_secret": UPSTOX_API_SECRET,
+            "redirect_uri": UPSTOX_REDIRECT_URL,
+            "grant_type": "authorization_code",
+        }
+        logger.info("Exchanging Upstox code: client_id=%s, redirect=%s", UPSTOX_API_KEY[:8], UPSTOX_REDIRECT_URL)
         resp = requests.post(
             UPSTOX_TOKEN_URL,
-            data={
-                "code": code,
-                "client_id": UPSTOX_API_KEY,
-                "client_secret": UPSTOX_API_SECRET,
-                "redirect_uri": UPSTOX_REDIRECT_URL,
-                "grant_type": "authorization_code",
+            data=payload,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
             },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=15,
         )
+        if resp.status_code != 200:
+            logger.error("Upstox token exchange failed: %s %s", resp.status_code, resp.text)
         resp.raise_for_status()
         data = resp.json()
         self.access_token = data.get("access_token")
