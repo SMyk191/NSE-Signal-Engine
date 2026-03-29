@@ -159,6 +159,8 @@ function Admin() {
   const [actionLoading, setActionLoading] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [toast, setToast] = useState(null);
+  const [upstoxConnected, setUpstoxConnected] = useState(false);
+  const [upstoxLoading, setUpstoxLoading] = useState(true);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -215,14 +217,38 @@ function Admin() {
     }
   }, []);
 
+  const fetchUpstoxStatus = useCallback(async () => {
+    try {
+      const res = await api.get('/auth/upstox/status');
+      setUpstoxConnected(res.data?.connected || false);
+    } catch {
+      // silent
+    } finally {
+      setUpstoxLoading(false);
+    }
+  }, []);
+
+  const handleConnectUpstox = async () => {
+    try {
+      const res = await api.get('/auth/upstox/login');
+      const authUrl = res.data?.auth_url;
+      if (authUrl) {
+        window.location.href = authUrl;
+      }
+    } catch {
+      showToast('Failed to get Upstox login URL', 'error');
+    }
+  };
+
   useEffect(() => {
     if (currentUser?.role === 'admin') {
       fetchStats();
       fetchUsers();
       fetchActivity();
       fetchSettings();
+      fetchUpstoxStatus();
     }
-  }, [currentUser, fetchStats, fetchUsers, fetchActivity, fetchSettings]);
+  }, [currentUser, fetchStats, fetchUsers, fetchActivity, fetchSettings, fetchUpstoxStatus]);
 
   const handleUserAction = async (targetUser, action, value) => {
     const userId = targetUser._id || targetUser.id;
@@ -291,10 +317,12 @@ function Admin() {
 
   const refreshAll = () => {
     setLoading({ stats: true, users: true, activity: true, settings: true });
+    setUpstoxLoading(true);
     fetchStats();
     fetchUsers();
     fetchActivity();
     fetchSettings();
+    fetchUpstoxStatus();
   };
 
   // Access control
@@ -657,6 +685,27 @@ function Admin() {
                   className="w-full px-3 py-2 bg-[#0c1220] border border-[#1f2937] rounded-lg text-sm text-[#f1f5f9] font-mono focus:outline-none focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6]/30 transition-all"
                 />
                 <p className="text-xs text-[#64748b] mt-1">Maximum allowed registered users (0 = unlimited)</p>
+              </div>
+
+              {/* Upstox Integration */}
+              <div className="border-t border-[#1f2937] pt-4">
+                <p className="text-sm font-medium text-[#f1f5f9] mb-1">Upstox Integration</p>
+                <p className="text-xs text-[#64748b] mb-3">Live option chain data for accurate signals</p>
+                {upstoxLoading ? (
+                  <Loader2 className="w-4 h-4 text-[#64748b] animate-spin" />
+                ) : upstoxConnected ? (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#22c55e]/10 border border-[#22c55e]/20">
+                    <Check className="w-4 h-4 text-[#22c55e]" />
+                    <span className="text-sm font-medium text-[#22c55e]">Upstox Connected</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleConnectUpstox}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white bg-[#6366f1] hover:bg-[#4f46e5] transition-colors"
+                  >
+                    Connect Upstox
+                  </button>
+                )}
               </div>
 
               <button

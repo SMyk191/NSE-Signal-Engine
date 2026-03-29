@@ -189,3 +189,35 @@ def me(user=Depends(require_current_user)):
 @router.post("/logout")
 def logout():
     return {"message": "Logged out"}
+
+
+# ---------------------------------------------------------------------------
+# Upstox OAuth2 endpoints
+# ---------------------------------------------------------------------------
+from services.upstox import upstox_service
+
+
+@router.get("/upstox/login")
+def upstox_login():
+    """Return the Upstox OAuth2 authorization URL."""
+    url = upstox_service.get_auth_url()
+    return {"auth_url": url}
+
+
+@router.get("/upstox/callback")
+def upstox_callback(code: str):
+    """Exchange the Upstox authorization code for an access token."""
+    try:
+        data = upstox_service.exchange_code(code)
+        return {"status": "connected", "message": "Upstox connected successfully"}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to connect Upstox: {exc}",
+        )
+
+
+@router.get("/upstox/status")
+def upstox_status():
+    """Check whether Upstox is currently authenticated."""
+    return {"connected": upstox_service.is_authenticated()}

@@ -823,13 +823,32 @@ def get_action_recommendation(
     current_price = float(df["Close"].iloc[-1])
     atr = _safe_val(indicator_values, "ATR", current_price * 0.02)
 
-    # Fetch and analyse option chain: try NSE first, then yfinance fallback
+    # Fetch and analyse option chain
+    # Priority: 1) Upstox (if authenticated)  2) NSE direct  3) yfinance fallback
     oc_analysis = None
-    try:
-        oc_analysis = analyze_option_chain(symbol)
-    except Exception as exc:
-        logger.warning("NSE option chain failed for %s: %s — trying yfinance fallback", symbol, exc)
 
+    # --- Try Upstox first (most reliable when connected) ---
+    try:
+        from services.upstox import upstox_service, _parse_upstox_option_chain
+
+        if upstox_service.is_authenticated():
+            raw = upstox_service.fetch_option_chain(symbol)
+            if raw:
+                parsed = _parse_upstox_option_chain(raw, symbol)
+                if parsed and parsed.get("strike_count", 0) > 0:
+                    oc_analysis = parsed
+                    logger.info("Using Upstox option chain data for %s", symbol)
+    except Exception as exc:
+        logger.warning("Upstox option chain failed for %s: %s", symbol, exc)
+
+    # --- Try NSE direct ---
+    if oc_analysis is None:
+        try:
+            oc_analysis = analyze_option_chain(symbol)
+        except Exception as exc:
+            logger.warning("NSE option chain failed for %s: %s — trying yfinance fallback", symbol, exc)
+
+    # --- Try yfinance fallback ---
     if oc_analysis is None:
         try:
             yf_oc = fetch_yfinance_options(symbol)

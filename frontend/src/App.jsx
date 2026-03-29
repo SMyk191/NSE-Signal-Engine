@@ -24,6 +24,7 @@ import BacktestResults from './pages/BacktestResults';
 import TechnicalAnalysis from './pages/TechnicalAnalysis';
 import Admin from './pages/Admin';
 import Login from './pages/Login';
+import UpstoxCallback from './pages/UpstoxCallback';
 import DisclaimerFooter from './components/DisclaimerFooter';
 import useAuthStore from './stores/authStore';
 
@@ -236,6 +237,8 @@ function AuthGate() {
 
   return (
     <Routes>
+      {/* Upstox OAuth callback — must work without login */}
+      <Route path="/callback" element={<UpstoxCallback />} />
       <Route
         path="/login"
         element={
