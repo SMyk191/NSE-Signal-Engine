@@ -548,37 +548,39 @@ export default function Dashboard() {
   const companyName = stockInfo?.name ?? selectedStock;
   const sector = SECTOR_MAP[selectedStock] ?? '';
 
-  // Fetch market overview
+  // Fetch market overview + top movers in ONE call
   useEffect(() => {
     axios
       .get(`${API_BASE}/market/overview`)
-      .then((res) => setMarketData(res.data))
-      .catch(() => {
-        // Silently fail -- market pulse strip just won't render
-      });
-  }, []);
+      .then((res) => {
+        const data = res.data;
+        setMarketData(data);
 
-  // Fetch top movers when portfolio is empty
-  useEffect(() => {
-    if (portfolio.length > 0) return;
-
-    // Fetch signals for a handful of NIFTY 50 stocks to determine movers
-    const sampleSymbols = NIFTY_50.slice(0, 20).map((s) => s.symbol);
-    const requests = sampleSymbols.map((sym) =>
-      axios
-        .get(`${API_BASE}/stocks/${sym}/signal`)
-        .then((res) => ({ symbol: sym, ...res.data }))
-        .catch(() => null)
-    );
-
-    Promise.all(requests).then((results) => {
-      const valid = results.filter(Boolean).filter((r) => r.change_pct != null);
-      const sorted = [...valid].sort((a, b) => (b.change_pct ?? 0) - (a.change_pct ?? 0));
-      setTopMovers({
-        gainers: sorted.filter((s) => s.change_pct >= 0).slice(0, 5),
-        losers: sorted.filter((s) => s.change_pct < 0).slice(-5).reverse(),
-      });
-    });
+        // Extract top movers from market overview (already has all stocks)
+        if (portfolio.length === 0) {
+          const stocks = [
+            ...(data.top_gainers || []),
+            ...(data.top_losers || []),
+            ...(data.sector_performance || []).flatMap((s) => s.stocks || []),
+          ];
+          // Deduplicate
+          const seen = new Set();
+          const unique = [];
+          for (const s of stocks) {
+            const sym = s.symbol;
+            if (sym && !seen.has(sym)) {
+              seen.add(sym);
+              unique.push(s);
+            }
+          }
+          const sorted = [...unique].sort((a, b) => (b.change_pct ?? 0) - (a.change_pct ?? 0));
+          setTopMovers({
+            gainers: sorted.filter((s) => (s.change_pct ?? 0) >= 0).slice(0, 5),
+            losers: sorted.filter((s) => (s.change_pct ?? 0) < 0).slice(-5).reverse(),
+          });
+        }
+      })
+      .catch(() => {});
   }, [portfolio.length]);
 
   // Fetch selected stock signal
