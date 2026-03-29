@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import requests
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
@@ -689,6 +690,107 @@ def _compute_targets(
 
 
 # ---------------------------------------------------------------------------
+# 3b.  yfinance Option Chain Fallback
+# ---------------------------------------------------------------------------
+
+def fetch_yfinance_options(symbol: str) -> Dict[str, Any]:
+    """Fetch basic option chain data from yfinance as fallback when NSE API is blocked."""
+    try:
+        yf_sym = symbol if symbol.endswith(".NS") else f"{symbol}.NS"
+        ticker = yf.Ticker(yf_sym)
+
+        # Get available expiration dates
+        expirations = ticker.options
+        if not expirations:
+            return {}
+
+        # Use nearest expiration
+        nearest_exp = expirations[0]
+        chain = ticker.option_chain(nearest_exp)
+
+        calls = chain.calls
+        puts = chain.puts
+
+        if calls.empty and puts.empty:
+            return {}
+
+        # Compute PCR
+        total_call_oi = int(calls["openInterest"].sum()) if "openInterest" in calls.columns else 0
+        total_put_oi = int(puts["openInterest"].sum()) if "openInterest" in puts.columns else 0
+        pcr = round(total_put_oi / total_call_oi, 4) if total_call_oi > 0 else 0.0
+
+        # Compute max pain
+        all_strikes = sorted(set(calls["strike"].tolist() + puts["strike"].tolist()))
+        call_oi_map = dict(zip(calls["strike"], calls.get("openInterest", []))) if not calls.empty else {}
+        put_oi_map = dict(zip(puts["strike"], puts.get("openInterest", []))) if not puts.empty else {}
+
+        min_pain = float("inf")
+        max_pain_strike = 0.0
+        for candidate in all_strikes:
+            total_pain = 0.0
+            for strike in all_strikes:
+                c_oi = call_oi_map.get(strike, 0) or 0
+                p_oi = put_oi_map.get(strike, 0) or 0
+                # CE buyer pain: if candidate > strike, CE is ITM
+                if candidate > strike:
+                    total_pain += (candidate - strike) * c_oi
+                # PE buyer pain: if candidate < strike, PE is ITM
+                if candidate < strike:
+                    total_pain += (strike - candidate) * p_oi
+            if total_pain < min_pain:
+                min_pain = total_pain
+                max_pain_strike = candidate
+
+        # Top Put OI strikes (support)
+        top_put_oi = (
+            puts.nlargest(5, "openInterest")[["strike", "openInterest"]].to_dict("records")
+            if not puts.empty and "openInterest" in puts.columns
+            else []
+        )
+
+        # Top Call OI strikes (resistance)
+        top_call_oi = (
+            calls.nlargest(5, "openInterest")[["strike", "openInterest"]].to_dict("records")
+            if not calls.empty and "openInterest" in calls.columns
+            else []
+        )
+
+        # Get underlying price from ticker
+        underlying_price = 0.0
+        try:
+            info = ticker.info or {}
+            underlying_price = info.get("currentPrice") or info.get("regularMarketPrice") or 0.0
+        except Exception:
+            pass
+
+        return {
+            "underlying_price": underlying_price,
+            "nearest_expiry": nearest_exp,
+            "pcr": pcr,
+            "pcr_interpretation": _interpret_pcr(pcr),
+            "max_pain": max_pain_strike,
+            "max_pain_interpretation": _interpret_max_pain(max_pain_strike, underlying_price) if underlying_price else "",
+            "highest_put_oi_strikes": [
+                {"strike": r["strike"], "oi": int(r.get("openInterest", 0) or 0), "change_oi": 0}
+                for r in top_put_oi
+            ],
+            "highest_call_oi_strikes": [
+                {"strike": r["strike"], "oi": int(r.get("openInterest", 0) or 0), "change_oi": 0}
+                for r in top_call_oi
+            ],
+            "oi_buildup_signal": "OI change data not available from yfinance",
+            "iv_analysis": "Detailed IV skew data not available from yfinance",
+            "total_ce_oi": total_call_oi,
+            "total_pe_oi": total_put_oi,
+            "strike_count": len(all_strikes),
+            "source": "yfinance",
+        }
+    except Exception as e:
+        logger.warning("yfinance options failed for %s: %s", symbol, e)
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # 4.  Main Public API — get_action_recommendation
 # ---------------------------------------------------------------------------
 
@@ -721,11 +823,23 @@ def get_action_recommendation(
     current_price = float(df["Close"].iloc[-1])
     atr = _safe_val(indicator_values, "ATR", current_price * 0.02)
 
-    # Fetch and analyse option chain
+    # Fetch and analyse option chain: try NSE first, then yfinance fallback
+    oc_analysis = None
     try:
         oc_analysis = analyze_option_chain(symbol)
     except Exception as exc:
-        logger.warning("Option chain analysis failed for %s: %s — proceeding without it", symbol, exc)
+        logger.warning("NSE option chain failed for %s: %s — trying yfinance fallback", symbol, exc)
+
+    if oc_analysis is None:
+        try:
+            yf_oc = fetch_yfinance_options(symbol)
+            if yf_oc and yf_oc.get("strike_count", 0) > 0:
+                oc_analysis = yf_oc
+                logger.info("Using yfinance option chain data for %s", symbol)
+        except Exception as exc2:
+            logger.warning("yfinance option chain also failed for %s: %s", symbol, exc2)
+
+    if oc_analysis is None:
         oc_analysis = {
             "underlying_price": current_price,
             "nearest_expiry": None,

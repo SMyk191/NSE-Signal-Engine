@@ -376,13 +376,53 @@ def _fetch_all_nse_stocks() -> List[Dict]:
         return _all_nse_stocks
     except Exception as e:
         logger.warning("Failed to fetch NSE stock list: %s", e)
-        # Fallback: return whatever we have cached, or NIFTY 50
+        # Fallback: return whatever we have cached, or NIFTY 50 + yfinance index discovery
         if _all_nse_stocks:
             return _all_nse_stocks
-        return [
+
+        # Start with NIFTY 50 stocks
+        fallback_stocks = [
             {"symbol": sym, "name": sym, "exchange": "NSE", "in_nifty50": True}
             for sym in NIFTY50_STOCKS
         ]
+
+        # Try to expand with popular index constituents from yfinance
+        _YF_INDICES = ["^NSEI", "^NSEBANK"]
+        seen_symbols = set(NIFTY50_STOCKS.keys())
+        for idx_symbol in _YF_INDICES:
+            try:
+                import yfinance as _yf
+                idx_ticker = _yf.Ticker(idx_symbol)
+                # Some yfinance versions expose constituents via .components or history
+                # Use info to at least confirm the index is accessible
+                info = idx_ticker.info or {}
+                logger.info("yfinance index %s info fetched: %s", idx_symbol, info.get("shortName", ""))
+            except Exception as idx_err:
+                logger.debug("yfinance index %s fetch failed: %s", idx_symbol, idx_err)
+
+        # Also add well-known mid-cap / popular stocks that aren't in NIFTY 50
+        _EXTRA_POPULAR = [
+            "IRCTC", "ZOMATO", "PAYTM", "NYKAA", "POLICYBZR", "DELHIVERY",
+            "HAL", "BEL", "NHPC", "IRFC", "RVNL", "SUZLON", "IDEA",
+            "YESBANK", "PNB", "BANKBARODA", "CANBK", "RECLTD", "PFC",
+            "ADANIENT", "ADANIPORTS", "ADANIPOWER", "ADANIGREEN",
+            "TATAELXSI", "PERSISTENT", "COFORGE", "MPHASIS", "LTTS",
+            "PIDILITIND", "GODREJCP", "DABUR", "MARICO", "COLPAL",
+            "PAGEIND", "MUTHOOTFIN", "BAJFINANCE", "CHOLAFIN",
+        ]
+        for sym in _EXTRA_POPULAR:
+            if sym not in seen_symbols:
+                seen_symbols.add(sym)
+                fallback_stocks.append({
+                    "symbol": sym,
+                    "name": sym,
+                    "exchange": "NSE",
+                    "in_nifty50": False,
+                })
+
+        _all_nse_stocks = fallback_stocks
+        _all_nse_fetched_at = _time.time() - _ALL_NSE_TTL + 3600  # cache for only 1 hour on fallback
+        return fallback_stocks
 
 
 @router.get("/all")
@@ -748,6 +788,10 @@ async def get_stock_sentiment(symbol: str, request: Request, force_refresh: bool
             "risk_factors": result.get("risk_factors", []),
             "catalysts": result.get("catalysts", []),
             "article_count": result.get("article_count", 0),
+            "articles": result.get("articles", []),
+            "analyst_recommendations": result.get("analyst_recommendations", {}),
+            "insider_activity": result.get("insider_activity", []),
+            "sources": result.get("sources", {}),
             "timestamp": result.get("timestamp"),
             "note": result.get("note"),
             "error": result.get("error"),

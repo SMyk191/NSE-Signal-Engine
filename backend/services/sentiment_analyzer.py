@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 
 import anthropic
+import feedparser
 import requests
 import yfinance as yf
 
@@ -178,6 +179,86 @@ class SentimentAnalyzer:
             return []
 
     # ------------------------------------------------------------------ #
+    #  Indian RSS Feeds for better news coverage
+    # ------------------------------------------------------------------ #
+    RSS_FEEDS = [
+        ("https://www.moneycontrol.com/rss/latestnews.xml", "Moneycontrol"),
+        ("https://www.moneycontrol.com/rss/marketreports.xml", "Moneycontrol Markets"),
+        ("https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "Economic Times Markets"),
+        ("https://www.livemint.com/rss/markets", "LiveMint Markets"),
+    ]
+
+    def fetch_rss_news(self, symbol: str) -> List[dict]:
+        """Fetch news from Indian financial RSS feeds, filtered by symbol/company name."""
+        # Derive a company name hint from yfinance for better matching
+        company_name = ""
+        try:
+            ticker = yf.Ticker(symbol)
+            info = ticker.info or {}
+            company_name = info.get("shortName", "") or info.get("longName", "")
+        except Exception:
+            pass
+
+        # Build search terms: the raw symbol (without .NS suffix) and company name words
+        raw_symbol = symbol.replace(".NS", "").replace(".BO", "").upper()
+        search_terms = [raw_symbol.lower()]
+        if company_name:
+            # Add significant words from company name (skip short filler words)
+            for word in company_name.split():
+                w = word.strip(".,()").lower()
+                if len(w) > 2 and w not in {"ltd", "ltd.", "limited", "the", "and", "inc", "corp"}:
+                    search_terms.append(w)
+
+        articles: List[dict] = []
+        for feed_url, feed_name in self.RSS_FEEDS:
+            try:
+                feed = feedparser.parse(feed_url)
+                for entry in feed.entries[:50]:
+                    title = entry.get("title", "")
+                    summary = entry.get("summary", "") or entry.get("description", "")
+                    text_to_search = (title + " " + summary).lower()
+
+                    # Check if any search term appears in the article
+                    if any(term in text_to_search for term in search_terms):
+                        pub_time = entry.get("published", "") or entry.get("updated", "")
+                        articles.append({
+                            "title": title,
+                            "publisher": feed_name,
+                            "link": entry.get("link", ""),
+                            "publish_time": pub_time,
+                            "summary": summary[:500] if summary else "",
+                        })
+            except Exception as e:
+                logger.warning(f"RSS feed fetch failed for {feed_url}: {e}")
+
+        return articles
+
+    # ------------------------------------------------------------------ #
+    #  yfinance: Analyst Recommendations (works for NSE stocks)
+    # ------------------------------------------------------------------ #
+    def fetch_yfinance_recommendations(self, symbol: str) -> dict:
+        """Fetch analyst recommendations from yfinance (works for NSE stocks)."""
+        try:
+            ticker = yf.Ticker(symbol)
+            # ticker.recommendations returns a DataFrame with columns:
+            # period, strongBuy, buy, hold, sell, strongSell
+            recs = ticker.recommendations
+            if recs is not None and not recs.empty:
+                latest = recs.iloc[-1]
+                return {
+                    "period": str(latest.name) if hasattr(latest, "name") else "",
+                    "strong_buy": int(latest.get("strongBuy", 0)),
+                    "buy": int(latest.get("buy", 0)),
+                    "hold": int(latest.get("hold", 0)),
+                    "sell": int(latest.get("sell", 0)),
+                    "strong_sell": int(latest.get("strongSell", 0)),
+                    "source": "yfinance",
+                }
+        except Exception as e:
+            logger.warning(f"yfinance recommendations failed for {symbol}: {e}")
+        return {}
+
+    # ------------------------------------------------------------------ #
     #  Analyze sentiment via Claude API
     # ------------------------------------------------------------------ #
     def analyze_sentiment(self, articles: list[dict], symbol: str) -> dict:
@@ -311,27 +392,39 @@ market implications, and any forward-looking statements. Return ONLY the JSON ob
         logger.info(f"Fetching fresh sentiment for {symbol}")
         yf_articles = self.fetch_news(symbol)
         finnhub_articles = self.fetch_finnhub_news(symbol)
+        rss_articles = self.fetch_rss_news(symbol)
 
-        # Deduplicate by title (prefer Finnhub for richer summaries)
+        # Deduplicate by title (prefer Finnhub for richer summaries, then RSS, then yfinance)
         seen_titles = set()
         articles = []
-        for art in finnhub_articles + yf_articles:
+        for art in finnhub_articles + rss_articles + yf_articles:
             title_key = art.get("title", "").strip().lower()
             if title_key and title_key not in seen_titles:
                 seen_titles.add(title_key)
                 articles.append(art)
 
+        # Limit to 20 articles total for analysis
+        articles = articles[:20]
+
         result = self.analyze_sentiment(articles, symbol)
         result["symbol"] = symbol
         result["timestamp"] = now
+        result["articles"] = articles
         result["sources"] = {
             "yfinance_articles": len(yf_articles),
             "finnhub_articles": len(finnhub_articles),
+            "rss_articles": len(rss_articles),
             "total_unique": len(articles),
         }
 
-        # Add Finnhub analyst recommendations & insider activity
-        result["analyst_recommendations"] = self.fetch_analyst_recommendations(symbol)
+        # Analyst recommendations: try yfinance first (free, works for NSE), fall back to Finnhub
+        yf_recs = self.fetch_yfinance_recommendations(symbol)
+        if yf_recs:
+            result["analyst_recommendations"] = yf_recs
+        else:
+            finnhub_recs = self.fetch_analyst_recommendations(symbol)
+            result["analyst_recommendations"] = finnhub_recs if finnhub_recs else {}
+
         result["insider_activity"] = self.fetch_insider_activity(symbol)
 
         # Cache the result
