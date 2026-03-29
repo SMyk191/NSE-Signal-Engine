@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -15,18 +15,28 @@ import {
   User,
   Loader2,
 } from 'lucide-react';
-import Dashboard from './pages/Dashboard';
-import SentimentAnalysis from './pages/SentimentAnalysis';
-import EarningsPredictor from './pages/EarningsPredictor';
-import PortfolioRisk from './pages/PortfolioRisk';
-import Screener from './pages/Screener';
-import BacktestResults from './pages/BacktestResults';
-import TechnicalAnalysis from './pages/TechnicalAnalysis';
-import Admin from './pages/Admin';
-import Login from './pages/Login';
-import UpstoxCallback from './pages/UpstoxCallback';
 import DisclaimerFooter from './components/DisclaimerFooter';
 import useAuthStore from './stores/authStore';
+
+// Lazy load all pages — only download when visited
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const TechnicalAnalysis = lazy(() => import('./pages/TechnicalAnalysis'));
+const SentimentAnalysis = lazy(() => import('./pages/SentimentAnalysis'));
+const EarningsPredictor = lazy(() => import('./pages/EarningsPredictor'));
+const PortfolioRisk = lazy(() => import('./pages/PortfolioRisk'));
+const Screener = lazy(() => import('./pages/Screener'));
+const BacktestResults = lazy(() => import('./pages/BacktestResults'));
+const Admin = lazy(() => import('./pages/Admin'));
+const Login = lazy(() => import('./pages/Login'));
+const UpstoxCallback = lazy(() => import('./pages/UpstoxCallback'));
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="w-6 h-6 text-[#3b82f6] animate-spin" />
+    </div>
+  );
+}
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
@@ -198,19 +208,21 @@ function ProtectedLayout() {
 
         {/* Main content area */}
         <div className="flex-1 w-full max-w-[1440px] mx-auto p-8">
-          <AnimatedPage>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/technical/:symbol?" element={<TechnicalAnalysis />} />
-              <Route path="/sentiment/:symbol?" element={<SentimentAnalysis />} />
-              <Route path="/earnings/:symbol?" element={<EarningsPredictor />} />
-              <Route path="/portfolio" element={<PortfolioRisk />} />
-              <Route path="/screener" element={<Screener />} />
-              <Route path="/backtest" element={<BacktestResults />} />
-              <Route path="/admin" element={<Admin />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </AnimatedPage>
+          <Suspense fallback={<PageLoader />}>
+            <AnimatedPage>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/technical/:symbol?" element={<TechnicalAnalysis />} />
+                <Route path="/sentiment/:symbol?" element={<SentimentAnalysis />} />
+                <Route path="/earnings/:symbol?" element={<EarningsPredictor />} />
+                <Route path="/portfolio" element={<PortfolioRisk />} />
+                <Route path="/screener" element={<Screener />} />
+                <Route path="/backtest" element={<BacktestResults />} />
+                <Route path="/admin" element={<Admin />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </AnimatedPage>
+          </Suspense>
         </div>
 
         <DisclaimerFooter />
@@ -236,15 +248,16 @@ function AuthGate() {
   }
 
   return (
-    <Routes>
-      {/* Upstox OAuth callback — must work without login */}
-      <Route path="/callback" element={<UpstoxCallback />} />
-      <Route
-        path="/login"
-        element={
-          isAuthenticated ? <Navigate to="/" replace /> : <Login />
-        }
-      />
+    <Suspense fallback={<div className="min-h-screen bg-[#0c1220] flex items-center justify-center"><Loader2 className="w-6 h-6 text-[#3b82f6] animate-spin" /></div>}>
+      <Routes>
+        {/* Upstox OAuth callback — must work without login */}
+        <Route path="/callback" element={<UpstoxCallback />} />
+        <Route
+          path="/login"
+          element={
+            isAuthenticated ? <Navigate to="/" replace /> : <Login />
+          }
+        />
       <Route
         path="/*"
         element={
@@ -256,6 +269,7 @@ function AuthGate() {
         }
       />
     </Routes>
+    </Suspense>
   );
 }
 
