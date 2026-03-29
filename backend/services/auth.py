@@ -114,6 +114,19 @@ def init_auth_db() -> None:
             (key, value),
         )
 
+    # Migration: ensure first user (id=1) is admin+active
+    first_user = conn.execute("SELECT id, role, status FROM users WHERE id = 1").fetchone()
+    if first_user:
+        conn.execute("UPDATE users SET role = 'admin', status = 'active' WHERE id = 1")
+
+    # Also promote any user matching ADMIN_EMAIL env var
+    admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+    if admin_email:
+        conn.execute(
+            "UPDATE users SET role = 'admin', status = 'active' WHERE LOWER(email) = ?",
+            (admin_email,),
+        )
+
     conn.commit()
     conn.close()
 
