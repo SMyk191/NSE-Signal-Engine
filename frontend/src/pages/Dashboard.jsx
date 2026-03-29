@@ -11,7 +11,7 @@ import SignalBadge from '../components/SignalBadge';
 import ActionPanel from '../components/ActionPanel';
 import Tooltip, { INDICATOR_TOOLTIPS } from '../components/Tooltip';
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 /* ─── Sector lookup ──────────────────────────────────────────── */
 const SECTOR_MAP = {
