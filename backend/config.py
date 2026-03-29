@@ -14,7 +14,8 @@ from pathlib import Path
 # Database
 # ---------------------------------------------------------------------------
 BASE_DIR: Path = Path(__file__).resolve().parent
-DATABASE_PATH: str = str(BASE_DIR / "nse_signal_engine.db")
+_DATA_DIR: Path = Path("/data") if Path("/data").exists() else BASE_DIR
+DATABASE_PATH: str = str(_DATA_DIR / "nse_signal_engine.db")
 
 # ---------------------------------------------------------------------------
 # Cache TTL (seconds) - 1 trading day = 86 400 seconds

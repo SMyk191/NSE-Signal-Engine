@@ -28,7 +28,9 @@ SECRET_KEY: str = os.environ.get("JWT_SECRET", "nse-signal-engine-secret-key-cha
 ALGORITHM: str = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
-AUTH_DB_PATH: str = str(BASE_DIR / "auth.db")
+# Use /data/ for Railway persistent volume, fallback to local for dev
+_data_dir = Path("/data") if Path("/data").exists() else BASE_DIR
+AUTH_DB_PATH: str = str(_data_dir / "auth.db")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
