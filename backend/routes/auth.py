@@ -3,13 +3,13 @@ from __future__ import annotations
 """
 NSE Signal Engine - Authentication Routes
 
-POST /api/auth/signup  — Register a new user
-POST /api/auth/login   — Log in and receive a JWT
-GET  /api/auth/me      — Get the current user from the JWT
-POST /api/auth/logout  — (stateless) Acknowledge logout
+POST /api/auth/signup  -- Register a new user
+POST /api/auth/login   -- Log in and receive a JWT
+GET  /api/auth/me      -- Get the current user from the JWT
+POST /api/auth/logout  -- (stateless) Acknowledge logout
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -18,8 +18,11 @@ from services.auth import (
     create_access_token,
     create_user,
     get_current_user,
+    get_setting,
     get_user_by_email,
     is_valid_email,
+    record_activity,
+    _count_users,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -45,11 +48,14 @@ class UserResponse(BaseModel):
     id: int
     email: str
     name: str
+    role: str = "user"
+    status: str = "active"
 
 
 class AuthResponse(BaseModel):
     token: str
     user: UserResponse
+    message: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +96,28 @@ def get_current_user_optional(
 # Endpoints
 # ---------------------------------------------------------------------------
 @router.post("/signup", response_model=AuthResponse)
-def signup(body: SignupRequest):
+def signup(body: SignupRequest, request: Request):
+    # Check if signup is allowed
+    allow_signup = get_setting("allow_signup")
+    if allow_signup == "false":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Signup is currently disabled.",
+        )
+
+    # Check max users limit
+    max_users_str = get_setting("max_users")
+    if max_users_str:
+        try:
+            max_users = int(max_users_str)
+            if _count_users() >= max_users:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Maximum number of users reached. Please contact the administrator.",
+                )
+        except ValueError:
+            pass  # Invalid setting value, skip the check
+
     # Validate email format
     if not is_valid_email(body.email):
         raise HTTPException(
@@ -122,11 +149,23 @@ def signup(body: SignupRequest):
     # Create user and token
     user = create_user(body.email, body.password, body.name)
     token = create_access_token({"sub": str(user["id"])})
-    return {"token": token, "user": user}
+
+    # Record signup activity
+    ip_address = request.client.host if request.client else None
+    record_activity(user["id"], "signup", f"New user registered: {user['email']}", ip_address)
+
+    # Build response message based on status
+    if user.get("status") == "pending":
+        message = "Account created. Pending admin approval."
+    else:
+        message = "Account created successfully."
+
+    return {"token": token, "user": user, "message": message}
 
 
 @router.post("/login", response_model=AuthResponse)
-def login(body: LoginRequest):
+def login(body: LoginRequest, request: Request):
+    # authenticate_user now raises HTTPException for pending/suspended/banned
     user = authenticate_user(body.email, body.password)
     if user is None:
         raise HTTPException(
@@ -134,7 +173,12 @@ def login(body: LoginRequest):
             detail="Invalid email or password",
         )
     token = create_access_token({"sub": str(user["id"])})
-    return {"token": token, "user": user}
+
+    # Record login activity
+    ip_address = request.client.host if request.client else None
+    record_activity(user["id"], "login", None, ip_address)
+
+    return {"token": token, "user": user, "message": ""}
 
 
 @router.get("/me", response_model=UserResponse)

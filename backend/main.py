@@ -22,6 +22,7 @@ from routes.stocks import router as stocks_router
 from routes.portfolio import router as portfolio_router
 from routes.screener import router as screener_router
 from routes.auth import router as auth_router
+from routes.admin import router as admin_router
 from services.auth import init_auth_db
 
 # ---------------------------------------------------------------------------
@@ -123,6 +124,7 @@ app.add_middleware(
 # Include routers
 # ---------------------------------------------------------------------------
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(stocks_router)
 app.include_router(portfolio_router)
 app.include_router(screener_router)

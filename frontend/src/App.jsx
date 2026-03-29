@@ -6,6 +6,7 @@ import {
   MessageSquare,
   BarChart3,
   Shield,
+  ShieldCheck,
   Search,
   History,
   Menu,
@@ -21,6 +22,7 @@ import PortfolioRisk from './pages/PortfolioRisk';
 import Screener from './pages/Screener';
 import BacktestResults from './pages/BacktestResults';
 import TechnicalAnalysis from './pages/TechnicalAnalysis';
+import Admin from './pages/Admin';
 import Login from './pages/Login';
 import DisclaimerFooter from './components/DisclaimerFooter';
 import useAuthStore from './stores/authStore';
@@ -100,6 +102,38 @@ function Sidebar({ mobileOpen, onClose }) {
               )}
             </NavLink>
           ))}
+
+          {/* Admin nav — only for admin users */}
+          {user?.role === 'admin' && (
+            <>
+              <div className="border-t border-[#1f2937] my-3 mx-1" />
+              <NavLink
+                to="/admin"
+                onClick={onClose}
+                className={({ isActive }) =>
+                  `relative flex items-center gap-3 px-3 py-1.5 rounded-md text-[13px] group transition-smooth ${
+                    isActive
+                      ? 'text-[#f1f5f9]'
+                      : 'text-[#64748b] hover:text-[#94a3b8]'
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    {isActive && (
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 bg-[#a78bfa] rounded-r-full" />
+                    )}
+                    <ShieldCheck
+                      className={`w-[18px] h-[18px] flex-shrink-0 ${
+                        isActive ? 'text-[#a78bfa]' : ''
+                      }`}
+                    />
+                    <span className={isActive ? 'font-medium' : ''}>Admin</span>
+                  </>
+                )}
+              </NavLink>
+            </>
+          )}
         </nav>
 
         {/* User footer */}
@@ -172,6 +206,7 @@ function ProtectedLayout() {
               <Route path="/portfolio" element={<PortfolioRisk />} />
               <Route path="/screener" element={<Screener />} />
               <Route path="/backtest" element={<BacktestResults />} />
+              <Route path="/admin" element={<Admin />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </AnimatedPage>

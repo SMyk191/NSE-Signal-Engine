@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from config import NIFTY50_STOCKS, to_yfinance_symbol, is_valid_symbol
 from services.data_fetcher import fetch_ohlcv, fetch_fundamentals, get_cached_or_fetch
@@ -31,8 +31,24 @@ from services.risk_engine import (
     compute_atr,
 )
 from services.option_chain import get_action_recommendation
+from services.auth import get_current_user, record_activity
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Activity tracking helper
+# ---------------------------------------------------------------------------
+async def track_activity(request: Request, action: str, details: str = None):
+    """Track user activity if authenticated. Non-blocking, doesn't fail the request."""
+    try:
+        token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        if token:
+            user = get_current_user(token)
+            if user:
+                record_activity(user["id"], action, details, request.client.host)
+    except Exception:
+        pass  # Never fail the request due to tracking
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
 
@@ -610,12 +626,13 @@ async def get_stock_indicators(
 
 
 @router.get("/{symbol}/signal")
-async def get_stock_signal(symbol: str):
+async def get_stock_signal(symbol: str, request: Request):
     """
     GET /api/stocks/{symbol}/signal
     Composite signal with full factor breakdown.
     """
     symbol = validate_symbol(symbol)
+    await track_activity(request, "view_stock", symbol)
 
     try:
         df = await get_cached_or_fetch(symbol)
@@ -708,12 +725,13 @@ async def get_stock_signal(symbol: str):
 
 
 @router.get("/{symbol}/sentiment")
-async def get_stock_sentiment(symbol: str, force_refresh: bool = Query(default=False)):
+async def get_stock_sentiment(symbol: str, request: Request, force_refresh: bool = Query(default=False)):
     """
     GET /api/stocks/{symbol}/sentiment
     Sentiment analysis results (calls Claude API).
     """
     symbol = validate_symbol(symbol)
+    await track_activity(request, "view_sentiment", symbol)
 
     try:
         yf_symbol = to_yfinance_symbol(symbol)

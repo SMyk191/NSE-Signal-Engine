@@ -23,10 +23,12 @@ function Login() {
   const [signupError, setSignupError] = useState('');
   const [signupLoading, setSignupLoading] = useState(false);
   const [showSignupPass, setShowSignupPass] = useState(false);
+  const [pendingMessage, setPendingMessage] = useState('');
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
+    setPendingMessage('');
 
     if (!loginEmail || !loginPassword) {
       setLoginError('Please fill in all fields');
@@ -35,7 +37,15 @@ function Login() {
 
     setLoginLoading(true);
     try {
-      await login(loginEmail, loginPassword);
+      const result = await login(loginEmail, loginPassword);
+      // Check if the user status is pending (from store or returned data)
+      const userStatus = useAuthStore.getState().user?.status;
+      if (userStatus === 'pending') {
+        // Log back out since pending users shouldn't access the app
+        useAuthStore.getState().logout();
+        setPendingMessage('Your account is pending admin approval. Please wait for activation.');
+        return;
+      }
       navigate('/');
     } catch (err) {
       setLoginError(err.message || 'Invalid email or password');
@@ -47,6 +57,7 @@ function Login() {
   const handleSignup = async (e) => {
     e.preventDefault();
     setSignupError('');
+    setPendingMessage('');
 
     if (!signupName || !signupEmail || !signupPassword || !signupConfirm) {
       setSignupError('Please fill in all fields');
@@ -72,6 +83,12 @@ function Login() {
     setSignupLoading(true);
     try {
       await signup(signupName, signupEmail, signupPassword);
+      const userStatus = useAuthStore.getState().user?.status;
+      if (userStatus === 'pending') {
+        useAuthStore.getState().logout();
+        setPendingMessage('Your account is pending admin approval. Please wait for activation.');
+        return;
+      }
       navigate('/');
     } catch (err) {
       setSignupError(err.message || 'Registration failed');
@@ -97,6 +114,16 @@ function Login() {
               Stock analysis powered by AI
             </p>
           </div>
+
+          {/* Pending approval message */}
+          {pendingMessage && (
+            <div className="mx-8 mt-6 px-4 py-3 rounded-lg bg-[#f59e0b]/10 border border-[#f59e0b]/20 text-[#f59e0b] text-sm flex items-start gap-3">
+              <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>{pendingMessage}</span>
+            </div>
+          )}
 
           {/* Tabs */}
           <div className="flex mx-8 mt-6 bg-[#0c1220] rounded-lg p-1">

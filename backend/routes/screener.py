@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from config import NIFTY50_STOCKS, SECTORS, to_yfinance_symbol
@@ -21,7 +21,7 @@ from services.data_fetcher import get_cached_or_fetch, fetch_ohlcv
 from services.indicators import IndicatorEngine
 from services.signal_engine import SignalEngine
 from services.backtester import Backtester
-from routes.stocks import _map_indicators_for_signal
+from routes.stocks import _map_indicators_for_signal, track_activity
 
 logger = logging.getLogger(__name__)
 
@@ -85,11 +85,12 @@ def _safe_float(value) -> Optional[float]:
 # ---------------------------------------------------------------------------
 
 @router.post("/screener")
-async def screen_stocks(req: ScreenerRequest):
+async def screen_stocks(req: ScreenerRequest, request: Request):
     """
     POST /api/screener
     Screen NIFTY 50 stocks with filter criteria.
     """
+    await track_activity(request, "run_screener", str(req.sectors or []))
     try:
         # Determine which symbols to process
         # Merge sector (singular) and sectors (plural) into a single list
@@ -231,11 +232,12 @@ async def screen_stocks(req: ScreenerRequest):
 
 
 @router.post("/backtest")
-async def run_backtest(req: BacktestRequest):
+async def run_backtest(req: BacktestRequest, request: Request):
     """
     POST /api/backtest
     Run a backtest with signal-based entry/exit on a single stock.
     """
+    await track_activity(request, "run_backtest", req.symbol.strip().upper())
     symbol = req.symbol.strip().upper()
     if symbol not in NIFTY50_STOCKS:
         raise HTTPException(
