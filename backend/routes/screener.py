@@ -255,28 +255,76 @@ async def run_backtest(req: BacktestRequest, request: Request):
                 detail=f"Insufficient data for backtesting {symbol} (need at least 50 data points)",
             )
 
-        # Compute indicators and generate signal scores for each day
+        # Compute all indicators ONCE on the full dataset
         engine = IndicatorEngine(df)
-        all_indicators = engine.compute_all()
+        all_data = engine.compute_all()
+        series = all_data.get("series", {})
 
-        # Build a signal series: for each row, compute the composite signal
-        # We'll use a rolling approach - compute signal from the latest values
-        # For simplicity, compute signal from the full indicator latest values
-        # and create a signal column
+        # Build signal scores using pre-computed indicator series
+        # Instead of recomputing for each bar, sample indicator values at each point
         signal_scores = []
+        rsi_s = series.get("RSI", pd.Series(dtype=float))
+        macd_s = series.get("MACD", pd.Series(dtype=float))
+        macd_sig_s = series.get("MACD_Signal", pd.Series(dtype=float))
+        sma20_s = series.get("SMA_20", pd.Series(dtype=float))
+        sma50_s = series.get("SMA_50", pd.Series(dtype=float))
+        sma200_s = series.get("SMA_200", pd.Series(dtype=float))
+        bb_upper_s = series.get("BB_Upper", pd.Series(dtype=float))
+        bb_lower_s = series.get("BB_Lower", pd.Series(dtype=float))
+        stoch_s = series.get("Stoch_K", pd.Series(dtype=float))
+        williams_s = series.get("Williams_R", pd.Series(dtype=float))
+        cmf_s = series.get("CMF", pd.Series(dtype=float))
+        obv_s = series.get("OBV", pd.Series(dtype=float))
+
         for i in range(len(df)):
             if i < 50:
                 signal_scores.append(0.0)
                 continue
-
-            window = df.iloc[: i + 1]
             try:
-                win_engine = IndicatorEngine(window)
-                win_all = win_engine.compute_all()
-                win_latest = win_all["latest"]
-                win_mapped = _map_indicators_for_signal(win_latest, window)
-                sig_result = signal_engine.compute_signal(symbol, win_mapped)
-                signal_scores.append(sig_result.composite_score)
+                close = float(df["Close"].iloc[i])
+                score = 0.0
+
+                # Trend signals
+                s200 = sma200_s.iloc[i] if i < len(sma200_s) else None
+                s50 = sma50_s.iloc[i] if i < len(sma50_s) else None
+                s20 = sma20_s.iloc[i] if i < len(sma20_s) else None
+                if s200 and not pd.isna(s200): score += 20 if close > s200 else -20
+                if s50 and not pd.isna(s50): score += 15 if close > s50 else -15
+                if s20 and not pd.isna(s20): score += 10 if close > s20 else -10
+                if s50 and s200 and not pd.isna(s50) and not pd.isna(s200):
+                    score += 15 if s50 > s200 else -15
+
+                macd_v = macd_s.iloc[i] if i < len(macd_s) else None
+                macd_sig_v = macd_sig_s.iloc[i] if i < len(macd_sig_s) else None
+                if macd_v and macd_sig_v and not pd.isna(macd_v) and not pd.isna(macd_sig_v):
+                    score += 10 if macd_v > macd_sig_v else -10
+
+                # Momentum
+                rsi = rsi_s.iloc[i] if i < len(rsi_s) else None
+                if rsi and not pd.isna(rsi):
+                    if rsi < 30: score += 30
+                    elif rsi > 70: score -= 30
+
+                wr = williams_s.iloc[i] if i < len(williams_s) else None
+                if wr and not pd.isna(wr):
+                    if wr < -80: score += 15
+                    elif wr > -20: score -= 15
+
+                # Volume
+                cmf = cmf_s.iloc[i] if i < len(cmf_s) else None
+                if cmf and not pd.isna(cmf):
+                    if cmf > 0.1: score += 20
+                    elif cmf < -0.1: score -= 20
+
+                # Volatility (Bollinger position)
+                bbu = bb_upper_s.iloc[i] if i < len(bb_upper_s) else None
+                bbl = bb_lower_s.iloc[i] if i < len(bb_lower_s) else None
+                if bbu and bbl and not pd.isna(bbu) and not pd.isna(bbl) and (bbu - bbl) > 0:
+                    pos = (close - bbl) / (bbu - bbl)
+                    if pos < 0.05: score += 25
+                    elif pos > 0.95: score -= 25
+
+                signal_scores.append(max(-100, min(100, score)))
             except Exception:
                 signal_scores.append(0.0)
 
